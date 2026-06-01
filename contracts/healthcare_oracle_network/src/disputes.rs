@@ -136,3 +136,53 @@ pub fn get_dispute(env: Env, dispute_id: u64) -> Option<Dispute> {
         .persistent()
         .get(&DataKey::Dispute(dispute_id))
 }
+
+pub fn get_open_disputes(env: Env) -> Vec<u64> {
+    let dispute_count: u64 = env
+        .storage()
+        .instance()
+        .get(&DataKey::DisputeCount)
+        .unwrap_or(0u64);
+
+    let mut open_disputes: Vec<u64> = Vec::new(&env);
+    let mut i = 1u64;
+    while i <= dispute_count {
+        if let Some(dispute) = env
+            .storage()
+            .persistent()
+            .get::<_, Dispute>(&DataKey::Dispute(i))
+        {
+            if dispute.status == DisputeStatus::Open {
+                open_disputes.push_back(i);
+            }
+        }
+        i += 1;
+    }
+    open_disputes
+}
+
+pub fn get_disputes_by_resolver(env: Env, resolver: Address) -> Vec<u64> {
+    let dispute_count: u64 = env
+        .storage()
+        .instance()
+        .get(&DataKey::DisputeCount)
+        .unwrap_or(0u64);
+
+    let mut resolver_disputes: Vec<u64> = Vec::new(&env);
+    let mut i = 1u64;
+    while i <= dispute_count {
+        if let Some(dispute) = env
+            .storage()
+            .persistent()
+            .get::<_, Dispute>(&DataKey::Dispute(i))
+        {
+            if let Some(dispute_resolver) = dispute.resolver {
+                if dispute_resolver == resolver {
+                    resolver_disputes.push_back(i);
+                }
+            }
+        }
+        i += 1;
+    }
+    resolver_disputes
+}

@@ -340,3 +340,174 @@ fn test_dispute_resolution_marks_consensus_and_penalizes_oracle() {
         .unwrap();
     assert!(consensus.disputed);
 }
+
+#[test]
+fn test_get_open_disputes_returns_open_disputes_only() {
+    let env = Env::default();
+    let (client, _admin, arbiter) = setup_contract(&env, 1);
+
+    let oracle = Address::generate(&env);
+    let challenger = Address::generate(&env);
+    register_and_verify_oracle(&env, &client, &_admin, &oracle, "https://oracle.example");
+
+    let feed_id_1 = String::from_str(&env, "FEED-001");
+    let feed_id_2 = String::from_str(&env, "FEED-002");
+
+    client.submit_regulatory_update(
+        &oracle,
+        &feed_id_1,
+        &RegulatoryAuthority::FDA,
+        &RegulatoryStatus::Approved,
+        &String::from_str(&env, "Approval notice"),
+        &String::from_str(&env, "sha256:hash1"),
+        &1000u64,
+    );
+
+    client.submit_regulatory_update(
+        &oracle,
+        &feed_id_2,
+        &RegulatoryAuthority::EMA,
+        &RegulatoryStatus::SafetyWarning,
+        &String::from_str(&env, "Safety alert"),
+        &String::from_str(&env, "sha256:hash2"),
+        &1001u64,
+    );
+
+    let dispute_id_1 = client.raise_dispute(
+        &challenger,
+        &FeedKind::RegulatoryUpdate,
+        &feed_id_1,
+        &String::from_str(&env, "Invalid data"),
+    );
+
+    let dispute_id_2 = client.raise_dispute(
+        &challenger,
+        &FeedKind::RegulatoryUpdate,
+        &feed_id_2,
+        &String::from_str(&env, "Mismatch found"),
+    );
+
+    // Both disputes should be open initially
+    let mut open_disputes = client.get_open_disputes();
+    assert_eq!(open_disputes.len(), 2);
+    assert!(open_disputes.contains(&dispute_id_1));
+    assert!(open_disputes.contains(&dispute_id_2));
+
+    // Resolve first dispute
+    client.resolve_dispute(
+        &arbiter,
+        &dispute_id_1,
+        &true,
+        &String::from_str(&env, "Confirmed as valid"),
+        &Some(oracle.clone()),
+    );
+
+    // Only second dispute should be open
+    open_disputes = client.get_open_disputes();
+    assert_eq!(open_disputes.len(), 1);
+    assert!(open_disputes.contains(&dispute_id_2));
+}
+
+#[test]
+fn test_get_disputes_by_resolver_filters_by_resolver() {
+    let env = Env::default();
+    let (client, _admin, arbiter) = setup_contract(&env, 1);
+
+    let oracle_1 = Address::generate(&env);
+    let oracle_2 = Address::generate(&env);
+    let arbiter_2 = Address::generate(&env);
+    let challenger = Address::generate(&env);
+
+    register_and_verify_oracle(&env, &client, &_admin, &oracle_1, "https://oracle1.example");
+    register_and_verify_oracle(&env, &client, &_admin, &oracle_2, "https://oracle2.example");
+
+    let feed_id_1 = String::from_str(&env, "FEED-001");
+    let feed_id_2 = String::from_str(&env, "FEED-002");
+    let feed_id_3 = String::from_str(&env, "FEED-003");
+
+    client.submit_regulatory_update(
+        &oracle_1,
+        &feed_id_1,
+        &RegulatoryAuthority::FDA,
+        &RegulatoryStatus::Approved,
+        &String::from_str(&env, "Approval"),
+        &String::from_str(&env, "sha256:hash1"),
+        &1000u64,
+    );
+
+    client.submit_regulatory_update(
+        &oracle_1,
+        &feed_id_2,
+        &RegulatoryAuthority::EMA,
+        &RegulatoryStatus::SafetyWarning,
+        &String::from_str(&env, "Alert"),
+        &String::from_str(&env, "sha256:hash2"),
+        &1001u64,
+    );
+
+    client.submit_regulatory_update(
+        &oracle_2,
+        &feed_id_3,
+        &RegulatoryAuthority::MHRA,
+        &RegulatoryStatus::Recall,
+        &String::from_str(&env, "Recall"),
+        &String::from_str(&env, "sha256:hash3"),
+        &1002u64,
+    );
+
+    let dispute_id_1 = client.raise_dispute(
+        &challenger,
+        &FeedKind::RegulatoryUpdate,
+        &feed_id_1,
+        &String::from_str(&env, "Issue 1"),
+    );
+
+    let dispute_id_2 = client.raise_dispute(
+        &challenger,
+        &FeedKind::RegulatoryUpdate,
+        &feed_id_2,
+        &String::from_str(&env, "Issue 2"),
+    );
+
+    let dispute_id_3 = client.raise_dispute(
+        &challenger,
+        &FeedKind::RegulatoryUpdate,
+        &feed_id_3,
+        &String::from_str(&env, "Issue 3"),
+    );
+
+    // Resolve disputes by different resolvers
+    client.resolve_dispute(
+        &arbiter,
+        &dispute_id_1,
+        &true,
+        &String::from_str(&env, "Valid"),
+        &Some(oracle_1.clone()),
+    );
+
+    client.resolve_dispute(
+        &arbiter,
+        &dispute_id_2,
+        &false,
+        &String::from_str(&env, "Invalid"),
+        &None,
+    );
+
+    client.resolve_dispute(
+        &arbiter_2,
+        &dispute_id_3,
+        &true,
+        &String::from_str(&env, "Valid"),
+        &Some(oracle_2.clone()),
+    );
+
+    // Get disputes by arbiter
+    let arbiter_disputes = client.get_disputes_by_resolver(&arbiter);
+    assert_eq!(arbiter_disputes.len(), 2);
+    assert!(arbiter_disputes.contains(&dispute_id_1));
+    assert!(arbiter_disputes.contains(&dispute_id_2));
+
+    let arbiter_2_disputes = client.get_disputes_by_resolver(&arbiter_2);
+    assert_eq!(arbiter_2_disputes.len(), 1);
+    assert!(arbiter_2_disputes.contains(&dispute_id_3));
+}

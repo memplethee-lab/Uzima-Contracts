@@ -257,6 +257,14 @@ impl HealthcareOracleNetwork {
         disputes::get_dispute(env, dispute_id)
     }
 
+    pub fn get_open_disputes(env: Env) -> Vec<u64> {
+        disputes::get_open_disputes(env)
+    }
+
+    pub fn get_disputes_by_resolver(env: Env, resolver: Address) -> Vec<u64> {
+        disputes::get_disputes_by_resolver(env, resolver)
+    }
+
     pub fn get_config(env: Env) -> Option<Config> {
         admin::get_config(env)
     }
